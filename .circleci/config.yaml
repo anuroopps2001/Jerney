@@ -1,0 +1,126 @@
+version: 2.1
+
+orbs:
+  node: circleci/node@5.1.0
+  docker: circleci/docker@2.4.0
+  trivy: aquasecurity/trivy@0.2.0
+  checkov: bridgecrew/checkov@0.1.5
+
+executors:
+  docker-publisher:
+    docker:
+      - image: cimg/base:stable
+
+jobs:
+# STAGE 1 & 2: Lint & Source Code Analysis
+  lint-and-sca:
+    parameters:
+      componet:
+        type: string
+
+    docker: 
+      - image: cimg/node:20.0
+
+    steps:
+      - checkout
+      - node/install-packages:
+          app-dir: << parameters.component >>
+          pkg-manager: npm
+
+      - run:
+          name: Lint << parameters.component >>
+          command: npm run lint
+          working_directory: << parameters.component >>
+
+      - run:
+          name: SCA Audit
+          command: npm --audit --audit-level=high || true
+          working_directory: << parameters.component >>
+
+
+  # STAGE 3 & 4: Build, Push & Scan
+  build-and-scan:
+    parameters:
+      component:
+        type: string
+    executor: docker-publisher
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+
+      - docker/check:
+          registry: docker.io
+
+      - docker/build:
+          image: docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-<< parameters.component >> 
+          tag: $CIRCLE_SHA1, latest
+          path: ./<< parameters.component >>
+
+      - trivy/scan:
+          image: docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-<< parameters.component >>
+          severity: "CRITICAL, HIGH"
+          exit-code: 1
+
+      - run:
+          name: Push to DockerHub
+          command: |
+            echo "$GITHUB_TOKEN" | docker login docker.io -u $GITHUB_ACTOR --password-stdin
+            docker push docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-<< parameters.component >>:$CIRCLE_SHA1
+            if [ "${CIRCLE_BRANCH}" == "main"]; then
+              docker push docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-<< parameters.component >>:latest
+            fi
+
+  # STAGE 5: Manifest Update (GitOps)
+  iac-scan:
+    docker:
+      image: cimg/base:stable
+    steps:
+      - checkout
+      - run:
+          name: Update K8s Image Tag
+          command: |
+            SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)
+            sed -i "s|image: .*jerney-backend.*|image: docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-backend:${SHORT_SHA}|g" k8s/jerney.yaml
+            sed -i "s|image: .*jerney-frontend.*|image: ghcr.io/${CIRCLE_PROJECT_USERNAME}/jerney-frontend:${SHORT_SHA}|g" k8s/jerney.yaml
+
+            git config user.name "circleci-bot"
+            git config user.email "bot@circleci.com"
+            git add k8s/jerney.yaml
+            git commit -m "ci: update k8s images to ${SHORT_SHA} [skip ci]" || echo "No changes to commit"
+            git push origin $CIRCLE_BRANCH
+
+workflows:
+  devsecops-pipeline:
+    jobs:
+      - lint-and-sca:
+          name: lint-backend
+          componet: "backend"
+      
+      - lint-and-sca:
+          name: lint-frontend
+          component: "frontend"
+
+      - build-and-scan:
+          name: build-backend
+          component: "backend"
+          context: github-creds
+          requires:
+            - lint-backend
+            - lint-frontend
+
+      - build-and-push:
+          name: build-frontend
+          component: "fronend"
+          context: github-creds
+          requires:
+            - lint-backend
+            - lint-frontend
+
+      - update-manifest:
+          requires:
+            - build-backend
+            - build-frontend
+          filters:
+            branches:
+              only: features/first-poc
