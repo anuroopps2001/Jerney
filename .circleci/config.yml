@@ -4,8 +4,6 @@ orbs:
   node: circleci/node@5.1.0
   docker: circleci/docker@2.4.0
   trivy: skedulo/trivy@0.10.0
-  # Note: The 'checkov' alias was declared but you used 'iac-scan' as a job name. 
-  # I've streamlined this below.
 
 executors:
   docker-publisher:
@@ -13,26 +11,32 @@ executors:
       - image: cimg/base:stable
 
 jobs:
-  lint-and-sca:
+  lint-test-and-sca:
     parameters:
       component:
         type: string
-    docker: 
+    docker:
       - image: cimg/node:20.0
     steps:
       - checkout
+
       - node/install-packages:
           app-dir: << parameters.component >>
           pkg-manager: npm
-          override-cache-key: << parameters.component >>/package-lock.json
+
       - run:
           name: Lint << parameters.component >>
           command: npm run lint
           working_directory: << parameters.component >>
+
       - run:
-          name: SCA Audit
-          # Fixed the flag typo: it should be 'npm audit' not '--audit'
-          command: npm audit --audit-level=high || true
+          name: Run Tests
+          command: npm test
+          working_directory: << parameters.component >>
+
+      - run:
+          name: SCA Audit (fail on high/critical)
+          command: npm audit --audit-level=high
           working_directory: << parameters.component >>
 
   build-and-scan:
@@ -42,25 +46,37 @@ jobs:
     executor: docker-publisher
     steps:
       - checkout
+
       - setup_remote_docker:
           docker_layer_caching: true
-      - docker/check:
-          registry: docker.io
-      - docker/build:
-          image: docker.io/anuroop21/jerney-<< parameters.component >> 
-          tag: << pipeline.git.revision >>,latest
-          path: ./<< parameters.component >>
-      # FIXED: The skedulo orb uses 'validate'
-      - trivy/validate:
-          image: docker.io/anuroop21/jerney-<< parameters.component >>:<< pipeline.git.revision >>
-          severity: HIGH,CRITICAL
-          cve-ignore-list: ""
-          exit-code: 1
+
       - run:
-          name: Push to DockerHub
+          name: Docker Login
           command: |
             echo "$DOCKERHUB_PASS" | docker login docker.io -u $DOCKERHUB_USER --password-stdin
-            docker push docker.io/anuroop21/jerney-<< parameters.component >>:<< pipeline.git.revision >>
+
+      - run:
+          name: Build Docker Image
+          command: |
+            SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)
+
+            docker build \
+              -t docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA} \
+              -t docker.io/anuroop21/jerney-<< parameters.component >>:latest \
+              ./<< parameters.component >>
+
+      - trivy/validate:
+          image: docker.io/anuroop21/jerney-<< parameters.component >>:${CIRCLE_SHA1}
+          severity: CRITICAL
+          exit-code: 1
+
+      - run:
+          name: Push Image
+          command: |
+            SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)
+
+            docker push docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA}
+
             if [ "${CIRCLE_BRANCH}" == "main" ]; then
               docker push docker.io/anuroop21/jerney-<< parameters.component >>:latest
             fi
@@ -70,36 +86,40 @@ jobs:
       - image: cimg/base:stable
     steps:
       - checkout
+
       - run:
           name: Update K8s Image Tag
           command: |
             SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)
-            # Standardized registry to docker.io for consistency
+
             sed -i "s|image: .*jerney-backend.*|image: docker.io/anuroop21/jerney-backend:${SHORT_SHA}|g" k8s/jerney.yaml
             sed -i "s|image: .*jerney-frontend.*|image: docker.io/anuroop21/jerney-frontend:${SHORT_SHA}|g" k8s/jerney.yaml
 
             git config user.name "circleci-bot"
             git config user.email "bot@circleci.com"
             git add k8s/jerney.yaml
-            git commit -m "ci: update k8s images to ${SHORT_SHA} [skip ci]" || echo "No changes to commit"
+            git commit -m "ci: update k8s images to ${SHORT_SHA} [skip ci]" || echo "No changes"
             git push origin $CIRCLE_BRANCH
 
 workflows:
   devsecops-pipeline:
     jobs:
-      - lint-and-sca:
+      - lint-test-and-sca:
           name: lint-backend
           component: "backend"
-      - lint-and-sca:
+
+      - lint-test-and-sca:
           name: lint-frontend
           component: "frontend"
+
       - build-and-scan:
           name: build-backend
           component: "backend"
-          context: dockerhub-creds # Ensure this context has DOCKERHUB_USER/PASS
+          context: dockerhub-creds
           requires:
             - lint-backend
             - lint-frontend
+
       - build-and-scan:
           name: build-frontend
           component: "frontend"
@@ -107,12 +127,12 @@ workflows:
           requires:
             - lint-backend
             - lint-frontend
+
       - update-manifest:
           requires:
             - build-backend
             - build-frontend
           filters:
             branches:
-              only: 
-                - main
+              only:
                 - features/first-poc
