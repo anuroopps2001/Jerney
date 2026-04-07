@@ -20,10 +20,10 @@ jobs:
     steps:
       - checkout
 
-      - node/install-packages:
-          app-dir: << parameters.component >>
-          pkg-manager: npm
-          install-command: npm ci   # ✅ deterministic install
+      - run:
+          name: Install dependencies
+          command: npm ci
+          working_directory: << parameters.component >>
 
       - run:
           name: Lint << parameters.component >>
