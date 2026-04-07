@@ -74,7 +74,7 @@ jobs:
   # STAGE 5: Manifest Update (GitOps)
   iac-scan:
     docker:
-      image: cimg/base:stable
+      - image: cimg/base:stable
     steps:
       - checkout
       - run:
