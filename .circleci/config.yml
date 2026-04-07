@@ -3,8 +3,8 @@ version: 2.1
 orbs:
   node: circleci/node@5.1.0
   docker: circleci/docker@2.4.0
-  trivy: aqua/trivy@1.0.0
-  checkov: bridgecrew/checkov@1.0.5
+  trivy: skedulo/trivy@0.10.0
+  checkov: bridgecrew/bridgecrew@1.0.5
 
 executors:
   docker-publisher:
