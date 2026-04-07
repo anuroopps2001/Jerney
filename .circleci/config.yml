@@ -54,20 +54,23 @@ jobs:
           name: Docker Login
           command: |
             echo "$DOCKERHUB_PASS" | docker login docker.io -u $DOCKERHUB_USER --password-stdin
+        
+      - run:
+          name: Set Short SHA
+          command: echo "export SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)" >> $BASH_ENV
 
       - run:
           name: Build Docker Image
           command: |
-            SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)
-
             docker build \
-              -t docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA} \
-              -t docker.io/anuroop21/jerney-<< parameters.component >>:latest \
-              ./<< parameters.component >>
+            -t docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA} \
+            -t docker.io/anuroop21/jerney-<< parameters.component >>:latest \
+            ./<< parameters.component >>
 
       - trivy/validate:
           image: docker.io/anuroop21/jerney-<< parameters.component >>:${CIRCLE_SHA1}
           severity: CRITICAL
+          cve-ignore-list: ""
           exit-code: 1
 
       - run:
