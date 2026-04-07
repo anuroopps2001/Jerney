@@ -13,9 +13,9 @@ executors:
 
 jobs:
 # STAGE 1 & 2: Lint & Source Code Analysis
-  lint-and-sca:
+  lint-and-scan:
     parameters:
-      componet:
+      component:
         type: string
 
     docker: 
