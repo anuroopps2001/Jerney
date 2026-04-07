@@ -65,10 +65,10 @@ jobs:
       - run:
           name: Push to DockerHub
           command: |
-            echo "$GITHUB_TOKEN" | docker login docker.io -u $GITHUB_ACTOR --password-stdin
-            docker push docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-<< parameters.component >>:$CIRCLE_SHA1
+            echo "$DOCKERHUB_PASS" | docker login docker.io -u $DOCKERHUB_USER --password-stdin
+            docker push docker.io/anuroop21/jerney-<< parameters.component >>:$CIRCLE_SHA1
             if [ "${CIRCLE_BRANCH}" == "main"]; then
-              docker push docker.io/${CIRCLE_PROJECT_USERNAME}/jerney-<< parameters.component >>:latest
+              docker push docker.io/anuroop21/jerney-<< parameters.component >>:latest
             fi
 
   # STAGE 5: Manifest Update (GitOps)
