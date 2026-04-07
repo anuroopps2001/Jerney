@@ -53,6 +53,7 @@ jobs:
       - trivy/validate:
           image: docker.io/anuroop21/jerney-<< parameters.component >>:<< pipeline.git.revision >>
           severity: HIGH,CRITICAL
+          cve-ignore-list: ""
           exit-code: 1
       - run:
           name: Push to DockerHub
