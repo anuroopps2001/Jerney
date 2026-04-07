@@ -24,6 +24,7 @@ jobs:
       - node/install-packages:
           app-dir: << parameters.component >>
           pkg-manager: npm
+          override-cache-key: << parameters.component >>/package-lock.json
       - run:
           name: Lint << parameters.component >>
           command: npm run lint
