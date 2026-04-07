@@ -93,11 +93,11 @@ jobs:
 workflows:
   devsecops-pipeline:
     jobs:
-      - lint-and-sca:
+      - lint-and-scan:
           name: lint-backend
           componet: "backend"
       
-      - lint-and-sca:
+      - lint-and-scan:
           name: lint-frontend
           component: "frontend"
 
