@@ -23,6 +23,7 @@ jobs:
       - node/install-packages:
           app-dir: << parameters.component >>
           pkg-manager: npm
+          install-command: npm ci   # ✅ deterministic install
 
       - run:
           name: Lint << parameters.component >>
@@ -35,7 +36,7 @@ jobs:
           working_directory: << parameters.component >>
 
       - run:
-          name: SCA Audit (fail on high/critical)
+          name: SCA Audit
           command: npm audit --audit-level=high
           working_directory: << parameters.component >>
 
@@ -51,24 +52,24 @@ jobs:
           docker_layer_caching: true
 
       - run:
+          name: Set SHORT_SHA
+          command: echo "export SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)" >> $BASH_ENV
+
+      - run:
           name: Docker Login
           command: |
             echo "$DOCKERHUB_PASS" | docker login docker.io -u $DOCKERHUB_USER --password-stdin
-        
-      - run:
-          name: Set Short SHA
-          command: echo "export SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)" >> $BASH_ENV
 
       - run:
           name: Build Docker Image
           command: |
             docker build \
-            -t docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA} \
-            -t docker.io/anuroop21/jerney-<< parameters.component >>:latest \
-            ./<< parameters.component >>
+              -t docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA} \
+              -t docker.io/anuroop21/jerney-<< parameters.component >>:latest \
+              ./<< parameters.component >>
 
       - trivy/validate:
-          image: docker.io/anuroop21/jerney-<< parameters.component >>:${CIRCLE_SHA1}
+          image: docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA}
           severity: CRITICAL
           cve-ignore-list: ""
           exit-code: 1
@@ -76,8 +77,6 @@ jobs:
       - run:
           name: Push Image
           command: |
-            SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)
-
             docker push docker.io/anuroop21/jerney-<< parameters.component >>:${SHORT_SHA}
 
             if [ "${CIRCLE_BRANCH}" == "main" ]; then
